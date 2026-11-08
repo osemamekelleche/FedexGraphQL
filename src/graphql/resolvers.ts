@@ -17,11 +17,13 @@ import {
   buildCreateTagBody,
   buildPostalValidationBody,
   buildValidateShipmentBody,
+  cleanInput,
   type AsyncShipmentInput,
   type CancelShipmentInput,
   type CancelTagInput,
   type CreateShipmentInput,
   type CreateTagInput,
+  type JsonObject,
   type PostalCodeValidationInput,
   type ValidateAddressInput,
 } from './serialize.js'
@@ -81,6 +83,21 @@ export const resolvers = {
         )
         return toShipmentResult(raw)
       }),
+
+    trackShipment: (_parent: unknown, { input }: Args<JsonObject>) =>
+      run(() => fedexRequest('POST', '/track/v1/trackingnumbers', cleanInput(input))),
+
+    trackByReferenceNumbers: (_parent: unknown, { input }: Args<JsonObject>) =>
+      run(() => fedexRequest('POST', '/track/v1/referencenumbers', cleanInput(input))),
+
+    trackAssociatedShipments: (_parent: unknown, { input }: Args<JsonObject>) =>
+      run(() => fedexRequest('POST', '/track/v1/associatedshipments', cleanInput(input))),
+
+    trackByTcn: (_parent: unknown, { input }: Args<JsonObject>) =>
+      run(() => fedexRequest('POST', '/track/v1/tcn', cleanInput(input))),
+
+    trackDocuments: (_parent: unknown, { input }: Args<JsonObject>) =>
+      run(() => fedexRequest('POST', '/track/v1/trackingdocuments', cleanInput(input))),
   },
 
   Mutation: {
@@ -133,5 +150,8 @@ export const resolvers = {
         )
         return toTagResult(raw)
       }),
+
+    sendTrackingNotifications: (_parent: unknown, { input }: Args<JsonObject>) =>
+      run(() => fedexRequest('POST', '/track/v1/notifications', cleanInput(input))),
   },
 }

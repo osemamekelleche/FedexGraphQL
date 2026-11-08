@@ -133,6 +133,60 @@ test('ship.json types are generated and no JSON pass-through remains', () => {
   }
 })
 
+test('Track API operations expose generated request and response types', () => {
+  const queryFields = schema.getQueryType()?.getFields() ?? {}
+  const cases: Array<[string, string, string]> = [
+    [
+      'trackShipment',
+      'FedexTrackFull_Schema_Tracking_NumbersInput',
+      'FedexTrackTrkcResponseVO_TrackingNumber',
+    ],
+    [
+      'trackByReferenceNumbers',
+      'FedexTrackFull_Schema_Tracking_ReferencesInput',
+      'FedexTrackTrkcResponseVO_ReferenceNumber',
+    ],
+    [
+      'trackAssociatedShipments',
+      'FedexTrackFull_Schema_Multiple_Piece_ShipmentInput',
+      'FedexTrackTrkcResponseVO_Associated',
+    ],
+    ['trackByTcn', 'FedexTrackFull_Schema_TCNInput', 'FedexTrackTrkcResponseVO_TCN'],
+    ['trackDocuments', 'FedexTrackFull_Schema_SPODInput', 'FedexTrackTrkcResponseVO_SPOD'],
+  ]
+
+  for (const [fieldName, inputType, outputType] of cases) {
+    const field = queryFields[fieldName]
+    assert.ok(field, `${fieldName} should exist`)
+    assert.equal(field.args[0]?.type.toString(), `${inputType}!`)
+    assert.equal(field.type.toString(), `${outputType}!`)
+    assert.ok(schema.getType(inputType), `${inputType} should exist`)
+    assert.ok(schema.getType(outputType), `${outputType} should exist`)
+  }
+
+  const mutationFields = schema.getMutationType()?.getFields() ?? {}
+  const notification = mutationFields.sendTrackingNotifications
+  assert.ok(notification, 'sendTrackingNotifications should exist')
+  assert.equal(
+    notification.args[0]?.type.toString(),
+    'FedexTrackFull_Schema_NotificationInput!',
+  )
+  assert.equal(
+    notification.type.toString(),
+    'FedexTrackTrkcResponseVO_Notifications!',
+  )
+
+  for (const name of [
+    'FedexTrackTrackingNumbersResponse',
+    'FedexTrackCompleteTrackResult',
+    'FedexTrackScanEvent',
+    'FedexTrackSPODResponseVO',
+    'FedexTrackSendNotificationOutputVO',
+  ]) {
+    assert.ok(schema.getType(name), `${name} should exist`)
+  }
+})
+
 test('fedexHealth is queryable without credentials', async () => {
   const result = await graphql({
     schema,

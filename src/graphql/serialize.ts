@@ -257,6 +257,15 @@ function clean(value: unknown): unknown {
   return value
 }
 
+/**
+ * Clean a generated `Fedex*Input` object before sending it to FedEx. Generated
+ * inputs mirror the OpenAPI document exactly, so every field can be forwarded
+ * as-is once null/undefined values are removed.
+ */
+export function cleanInput(input: JsonObject): JsonObject {
+  return compact(input)
+}
+
 function compact(value: JsonObject): JsonObject {
   const output: JsonObject = {}
   for (const [key, raw] of Object.entries(value)) {

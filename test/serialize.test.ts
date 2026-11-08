@@ -7,6 +7,7 @@ import {
   buildCancelTagBody,
   buildCreateShipmentBody,
   buildCreateTagBody,
+  cleanInput,
   type CreateShipmentInput,
 } from '../src/graphql/serialize.js'
 
@@ -76,6 +77,36 @@ test('throws a BAD_USER_INPUT GraphQLError when no account number is available',
       assert.ok(error instanceof GraphQLError)
       assert.equal(error.extensions.code, 'BAD_USER_INPUT')
       return true
+    },
+  )
+})
+
+test('cleanInput drops null/undefined values recursively for generated inputs', () => {
+  assert.deepEqual(
+    cleanInput({
+      includeDetailedScans: true,
+      trackingInfo: [
+        {
+          trackingNumberInfo: {
+            trackingNumber: '794953535000',
+            carrierCode: 'FDXG',
+            trackingNumberUniqueId: null,
+          },
+          shipDateBegin: undefined,
+        },
+      ],
+      unused: null,
+    }),
+    {
+      includeDetailedScans: true,
+      trackingInfo: [
+        {
+          trackingNumberInfo: {
+            trackingNumber: '794953535000',
+            carrierCode: 'FDXG',
+          },
+        },
+      ],
     },
   )
 })

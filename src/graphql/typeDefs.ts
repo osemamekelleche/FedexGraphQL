@@ -18,6 +18,27 @@ ${generatedTypeDefs}
 
     "Retrieve a shipment that FedEx processed asynchronously, using the jobId returned by createShipment."
     asyncShipment(input: AsyncShipmentInput!): ShipmentResult!
+
+    "Track one or more shipments by FedEx tracking number (Track API)."
+    trackShipment(
+      input: FedexTrackFull_Schema_Tracking_NumbersInput!
+    ): FedexTrackTrkcResponseVO_TrackingNumber!
+
+    "Track shipments by alternate reference numbers, such as purchase orders or invoices."
+    trackByReferenceNumbers(
+      input: FedexTrackFull_Schema_Tracking_ReferencesInput!
+    ): FedexTrackTrkcResponseVO_ReferenceNumber!
+
+    "Track every package associated with a master tracking number in a multi-piece shipment."
+    trackAssociatedShipments(
+      input: FedexTrackFull_Schema_Multiple_Piece_ShipmentInput!
+    ): FedexTrackTrkcResponseVO_Associated!
+
+    "Track a shipment by transportation control number (TCN)."
+    trackByTcn(input: FedexTrackFull_Schema_TCNInput!): FedexTrackTrkcResponseVO_TCN!
+
+    "Retrieve signature proof of delivery or bill of lading documents."
+    trackDocuments(input: FedexTrackFull_Schema_SPODInput!): FedexTrackTrkcResponseVO_SPOD!
   }
 
   type Mutation {
@@ -35,6 +56,11 @@ ${generatedTypeDefs}
 
     "Cancel a return tag and its associated pickup."
     cancelTag(input: CancelTagInput!): TagResult!
+
+    "Register tracking event notifications for a shipment (Track API)."
+    sendTrackingNotifications(
+      input: FedexTrackFull_Schema_NotificationInput!
+    ): FedexTrackTrkcResponseVO_Notifications!
   }
 
   type FedexHealth {

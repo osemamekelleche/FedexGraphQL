@@ -370,6 +370,259 @@ query ValidatePostalCode {
   }
 }
 
+# --- Track by tracking number ---------------------------------------------
+query TrackShipment {
+  trackShipment(
+    input: {
+      includeDetailedScans: true
+      trackingInfo: [
+        {
+          trackingNumberInfo: {
+            trackingNumber: "794953535000"
+            carrierCode: FDXG
+          }
+        }
+      ]
+    }
+  ) {
+    transactionId
+    customerTransactionId
+    output {
+      completeTrackResults {
+        trackingNumber
+        trackResults {
+          trackingNumberInfo {
+            trackingNumber
+            carrierCode
+            trackingNumberUniqueId
+          }
+          latestStatusDetail {
+            code
+            derivedCode
+            statusByLocale
+            description
+            scanLocation {
+              city
+              stateOrProvinceCode
+              countryCode
+            }
+          }
+          dateAndTimes {
+            type
+            dateTime
+          }
+          scanEvents {
+            date
+            eventDescription
+            derivedStatus
+            scanLocation {
+              city
+              stateOrProvinceCode
+              countryCode
+            }
+          }
+        }
+      }
+      alerts {
+        code
+        alertType
+        message
+      }
+    }
+  }
+}
+
+# --- Track by alternate reference -----------------------------------------
+query TrackByReference {
+  trackByReferenceNumbers(
+    input: {
+      includeDetailedScans: true
+      referencesInformation: {
+        type: "PURCHASE_ORDER"
+        value: "PO-12345"
+        accountNumber: "123456789"
+        shipDateBegin: "2026-10-01"
+        shipDateEndDate: "2026-11-01"
+        destinationCountryCode: "US"
+        destinationPostalCode: "38017"
+      }
+    }
+  ) {
+    transactionId
+    output {
+      successful
+      completeTrackResults {
+        trackingNumber
+        trackResults {
+          latestStatusDetail {
+            code
+            statusByLocale
+            description
+          }
+        }
+      }
+      alerts {
+        code
+        message
+      }
+    }
+  }
+}
+
+# --- Track all packages in a multi-piece shipment -------------------------
+query TrackAssociatedShipments {
+  trackAssociatedShipments(
+    input: {
+      associatedType: STANDARD_MPS
+      includeDetailedScans: true
+      masterTrackingNumberInfo: {
+        trackingNumberInfo: {
+          trackingNumber: "794953535000"
+          carrierCode: FDXG
+        }
+      }
+      pagingDetails: { resultsPerPage: 25 }
+    }
+  ) {
+    transactionId
+    output {
+      completeTrackResults {
+        trackingNumber
+        trackResults {
+          trackingNumberInfo {
+            trackingNumber
+            carrierCode
+          }
+          latestStatusDetail {
+            code
+            description
+          }
+        }
+      }
+      alerts {
+        code
+        message
+      }
+    }
+  }
+}
+
+# --- Track by transportation control number -------------------------------
+query TrackByTcn {
+  trackByTcn(
+    input: {
+      includeDetailedScans: true
+      tcnInfo: {
+        value: "N552428361Y555XXX"
+        carrierCode: "FDXE"
+        shipDateBegin: "2026-10-01"
+        shipDateEnd: "2026-11-01"
+      }
+    }
+  ) {
+    transactionId
+    output {
+      completeTrackResults {
+        trackingNumber
+        trackResults {
+          latestStatusDetail {
+            code
+            statusByLocale
+            description
+          }
+        }
+      }
+      alerts {
+        code
+        message
+      }
+    }
+  }
+}
+
+# --- Retrieve signature proof of delivery ---------------------------------
+query TrackDocuments {
+  trackDocuments(
+    input: {
+      trackDocumentDetail: {
+        documentType: "SIGNATURE_PROOF_OF_DELIVERY"
+        documentFormat: "PDF"
+      }
+      trackDocumentSpecification: [
+        {
+          trackingNumberInfo: {
+            trackingNumber: "794953535000"
+            carrierCode: FDXG
+          }
+        }
+      ]
+    }
+  ) {
+    transactionId
+    output {
+      documentType
+      documentFormat
+      document
+      alerts {
+        code
+        message
+      }
+    }
+  }
+}
+
+# --- Register tracking event notifications --------------------------------
+mutation SendTrackingNotifications {
+  sendTrackingNotifications(
+    input: {
+      senderContactName: "Warehouse"
+      senderEMailAddress: "warehouse@example.com"
+      shipDateBegin: "2026-10-01"
+      shipDateEnd: "2026-11-01"
+      trackingNumberInfo: {
+        trackingNumber: "794953535000"
+        carrierCode: FDXG
+      }
+      trackingEventNotificationDetail: {
+        personalMessage: "Your shipment is on the way."
+        supportHTML: "false"
+        trackingNotifications: [
+          {
+            role: "RECIPIENT"
+            notificationEventTypes: [
+              "ON_DELIVERY"
+              "ON_ESTIMATED_DELIVERY"
+              "ON_EXCEPTION"
+            ]
+            currentResultRequestedFlag: false
+            notificationDetail: {
+              notificationType: "HTML"
+              emailDetail: {
+                emailAddress: "customer@example.com"
+                name: "Customer"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ) {
+    transactionId
+    output {
+      TrackingNumberInfo {
+        trackingNumber
+        carrierCode
+        trackingNumberUniqueId
+      }
+      recipientDetails
+      alerts {
+        code
+        message
+      }
+    }
+  }
+}
+
 # --- Local health/configuration check ------------------------------------
 query Health {
   fedexHealth {

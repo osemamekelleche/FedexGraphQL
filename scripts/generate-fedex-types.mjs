@@ -1,9 +1,13 @@
 /**
- * Generates GraphQL types for every object, enum, and alias in
- * `ship.json` (the FedEx Ship API OpenAPI document).
+ * Generates GraphQL types for every object, enum, and alias in the FedEx
+ * OpenAPI documents checked into this repository.
  *
- * The generated types are prefixed with `Fedex` so they can never collide with
- * the hand-written convenience types in `src/graphql/typeDefs.ts`.
+ *   ship.json   -> Fedex<Name>       (Ship API)
+ *   track.json  -> FedexTrack<Name>  (Track API)
+ *
+ * The generated types are prefixed so they can never collide with the
+ * hand-written convenience types in `src/graphql/typeDefs.ts` or with each
+ * other across API documents.
  *
  * Input and output shapes are generated separately because GraphQL input
  * object types cannot be used as output types (and vice versa):
@@ -13,16 +17,21 @@
  *
  * OpenAPI enums become GraphQL enums on input types (for autocomplete).
  * Output fields use `String` for enum values so a new FedEx value can never
- * break response serialization.
+ * break response serialization. Enums with invalid GraphQL values (for
+ * example `true`/`false` or values containing spaces) fall back to the
+ * underlying scalar type.
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const openApi = JSON.parse(readFileSync(join(projectRoot, 'ship.json'), 'utf8'))
-const schemas = openApi.components.schemas
 const REF_PREFIX = '#/components/schemas/'
+
+const DOCUMENTS = [
+  { file: 'ship.json', prefix: 'Fedex' },
+  { file: 'track.json', prefix: 'FedexTrack' },
+]
 
 const RESERVED_NAMES = new Set(['FedexHealth', 'FedexMessage'])
 const usedNames = new Set(RESERVED_NAMES)
@@ -68,29 +77,52 @@ function mergeShapes(left, right) {
   return right.kind === 'unknown' ? left : right
 }
 
+function isValidEnumValue(value) {
+  return (
+    typeof value === 'string' &&
+    INVALID_NAME.test(value) &&
+    !value.startsWith('__') &&
+    !RESERVED_ENUM_VALUES.has(value)
+  )
+}
+
+function isValidEnum(values) {
+  return (
+    Array.isArray(values) &&
+    values.length > 0 &&
+    values.every(isValidEnumValue)
+  )
+}
+
 /**
- * Resolve `$ref`, `allOf`, `anyOf`, and inline properties into one flat
- * property map. Cycles are cut with `seen`; GraphQL types themselves may be
- * recursive, only schema composition is flattened here.
+ * Resolve `$ref`, `allOf`, `anyOf`, `oneOf`, and inline properties into one
+ * flat property map. Cycles are cut with `seen`; GraphQL types themselves may
+ * be recursive, only schema composition is flattened here.
  */
-function shapeOf(def, seen = new Set()) {
+function shapeOf(def, context, seen = new Set()) {
   if (!def || typeof def !== 'object') return { kind: 'unknown' }
 
   const ref = refName(def)
   if (ref) {
-    if (!schemas[ref] || seen.has(ref)) return { kind: 'unknown' }
-    const base = shapeOf(schemas[ref], new Set([...seen, ref]))
+    if (!context.schemas[ref] || seen.has(ref)) return { kind: 'unknown' }
+    const base = shapeOf(context.schemas[ref], context, new Set([...seen, ref]))
     if (!hasStructuralSiblings(def)) return base
     const siblings = { ...def }
     delete siblings.$ref
-    return mergeShapes(base, shapeOf(siblings, seen))
+    return mergeShapes(base, shapeOf(siblings, context, seen))
   }
 
-  if (def.allOf || def.anyOf || def.properties || def.type === 'object') {
+  if (
+    def.allOf ||
+    def.anyOf ||
+    def.oneOf ||
+    def.properties ||
+    def.type === 'object'
+  ) {
     const properties = {}
-    for (const key of ['allOf', 'anyOf']) {
+    for (const key of ['allOf', 'anyOf', 'oneOf']) {
       for (const part of def[key] ?? []) {
-        const shape = shapeOf(part, seen)
+        const shape = shapeOf(part, context, seen)
         Object.assign(properties, shape.properties ?? {})
       }
     }
@@ -98,7 +130,7 @@ function shapeOf(def, seen = new Set()) {
     return { kind: 'object', properties }
   }
 
-  if (def.enum) return { kind: 'enum', values: def.enum }
+  if (def.enum && isValidEnum(def.enum)) return { kind: 'enum', values: def.enum }
   if (def.type === 'array') return { kind: 'array', items: def.items }
   if (def.type) return { kind: 'scalar', type: def.type }
   return { kind: 'unknown' }
@@ -114,18 +146,9 @@ function describe(value, maxLength) {
   return plain.length > maxLength ? `${plain.slice(0, maxLength - 1).trimEnd()}…` : plain
 }
 
-function isValidEnumValue(value) {
-  return (
-    typeof value === 'string' &&
-    INVALID_NAME.test(value) &&
-    !value.startsWith('__') &&
-    !RESERVED_ENUM_VALUES.has(value)
-  )
-}
-
 function registerEnum(name, values, description) {
   const uniqueValues = [...new Set(values)]
-  if (uniqueValues.length === 0 || !uniqueValues.every(isValidEnumValue)) return false
+  if (!isValidEnum(uniqueValues)) return false
   if (!typeDefs.has(name)) {
     typeDefs.set(name, {
       kind: 'enum',
@@ -152,28 +175,7 @@ function scalarName(type) {
   }
 }
 
-const shapes = new Map()
-for (const name of Object.keys(schemas)) {
-  shapes.set(name, shapeOf(schemas[name]))
-}
-
-const enumComponentNames = new Map()
-const outputComponentNames = new Map()
-const inputComponentNames = new Map()
-
-// Reserve every top-level name up front so generated helper types cannot take
-// a name belonging to a schema that is registered later.
-for (const [name, shape] of shapes) {
-  if (shape.kind === 'enum') {
-    enumComponentNames.set(name, uniqueName(`Fedex${sanitize(name)}`))
-  } else {
-    const outputName = uniqueName(`Fedex${sanitize(name)}`)
-    outputComponentNames.set(name, outputName)
-    inputComponentNames.set(name, uniqueName(`${outputName}Input`))
-  }
-}
-
-function registerObject(name, shape, mode, description) {
+function registerObject(name, shape, mode, description, context) {
   if (!shape || shape.kind !== 'object') return false
   if (Object.keys(shape.properties).length === 0) return false
   if (typeDefs.has(name)) return true
@@ -188,7 +190,7 @@ function registerObject(name, shape, mode, description) {
   typeDefs.set(name, definition)
 
   for (const [property, propertyDef] of Object.entries(shape.properties)) {
-    const type = mapType(propertyDef, name, property, mode)
+    const type = mapType(propertyDef, name, property, mode, context)
     if (!type) continue
     definition.fields.push({
       name: property,
@@ -200,50 +202,65 @@ function registerObject(name, shape, mode, description) {
   return true
 }
 
-function componentRef(ref, mode) {
-  const shape = shapes.get(ref)
+function componentRef(ref, mode, parentName, fieldName, context) {
+  const shape = context.shapes.get(ref)
   if (!shape) return 'String'
 
   if (shape.kind === 'enum') {
     if (mode === 'output') return 'String'
-    const name = enumComponentNames.get(ref)
+    const name = context.enumComponentNames.get(ref)
     if (!name) return 'String'
-    return registerEnum(name, shape.values, schemas[ref]?.description) ? name : 'String'
+    return registerEnum(name, shape.values, context.schemas[ref]?.description)
+      ? name
+      : 'String'
   }
 
   if (shape.kind === 'object') {
-    const name = mode === 'input' ? inputComponentNames.get(ref) : outputComponentNames.get(ref)
+    const name =
+      mode === 'input' ? context.inputComponentNames.get(ref) : context.outputComponentNames.get(ref)
     if (!name) return 'String'
-    return registerObject(name, shape, mode, schemas[ref]?.description) ? name : 'String'
+    return registerObject(
+      name,
+      shape,
+      mode,
+      context.schemas[ref]?.description,
+      context,
+    )
+      ? name
+      : 'String'
+  }
+
+  if (shape.kind === 'array') {
+    return `[${mapType(shape.items ?? {}, parentName, `${fieldName}Item`, mode, context)}]`
   }
 
   if (shape.kind === 'scalar') return scalarName(shape.type)
   return 'String'
 }
 
-function mapType(def, parentName, fieldName, mode) {
+function mapType(def, parentName, fieldName, mode, context) {
   if (!def || typeof def !== 'object') return 'String'
 
   const ref = refName(def)
   if (ref && !hasStructuralSiblings(def)) {
-    return componentRef(ref, mode)
+    return componentRef(ref, mode, parentName, fieldName, context)
   }
 
-  if (def.enum) {
+  if (def.enum && isValidEnum(def.enum)) {
     if (mode === 'output') return 'String'
     const name = uniqueName(`${parentName}_${fieldName}`)
     return registerEnum(name, def.enum, def.description) ? name : 'String'
   }
 
   if (def.type === 'array') {
-    return `[${mapType(def.items ?? {}, parentName, fieldName, mode)}]`
+    return `[${mapType(def.items ?? {}, parentName, fieldName, mode, context)}]`
   }
 
-  if (def.type === 'object' || def.properties || def.allOf || def.anyOf) {
-    const shape = shapeOf(def)
+  if (def.type === 'object' || def.properties || def.allOf || def.anyOf || def.oneOf) {
+    const shape = shapeOf(def, context)
     if (shape.kind !== 'object' || Object.keys(shape.properties).length === 0) return 'String'
     const name = uniqueName(`${parentName}_${fieldName}`)
-    return registerObject(name, shape, mode, def.description) ? name : 'String'
+    return registerObject(name, shape, mode, def.description, context) ? name : 'String'
   }
 
   if (def.type) return scalarName(def.type)
@@ -275,16 +292,63 @@ function emitEnum(definition) {
   return lines.join('\n')
 }
 
-// Register every schema, not just the ones used by the convenience types.
-// This keeps the GraphQL schema equivalent to the OpenAPI document.
-for (const [name, shape] of shapes) {
-  if (shape.kind === 'enum') {
-    const enumName = enumComponentNames.get(name)
-    if (enumName) registerEnum(enumName, shape.values, schemas[name]?.description)
-  } else if (shape.kind === 'object') {
-    registerObject(outputComponentNames.get(name), shape, 'output', schemas[name]?.description)
-    registerObject(inputComponentNames.get(name), shape, 'input', schemas[name]?.description)
+const contexts = []
+
+for (const document of DOCUMENTS) {
+  const openApi = JSON.parse(readFileSync(join(projectRoot, document.file), 'utf8'))
+  const schemas = openApi.components.schemas
+  const context = {
+    file: document.file,
+    prefix: document.prefix,
+    schemas,
+    shapes: new Map(),
+    enumComponentNames: new Map(),
+    outputComponentNames: new Map(),
+    inputComponentNames: new Map(),
   }
+
+  for (const name of Object.keys(schemas)) {
+    context.shapes.set(name, shapeOf(schemas[name], context))
+  }
+
+  // Reserve every top-level name up front so generated helper types cannot
+  // take a name belonging to a schema that is registered later.
+  for (const [name, shape] of context.shapes) {
+    const base = `${document.prefix}${sanitize(name)}`
+    if (shape.kind === 'enum') {
+      context.enumComponentNames.set(name, uniqueName(base))
+    } else {
+      const outputName = uniqueName(base)
+      context.outputComponentNames.set(name, outputName)
+      context.inputComponentNames.set(name, uniqueName(`${outputName}Input`))
+    }
+  }
+
+  // Register every schema, not just the ones used by the convenience types.
+  // This keeps the GraphQL schema equivalent to the OpenAPI document.
+  for (const [name, shape] of context.shapes) {
+    if (shape.kind === 'enum') {
+      const enumName = context.enumComponentNames.get(name)
+      if (enumName) registerEnum(enumName, shape.values, schemas[name]?.description)
+    } else if (shape.kind === 'object') {
+      registerObject(
+        context.outputComponentNames.get(name),
+        shape,
+        'output',
+        schemas[name]?.description,
+        context,
+      )
+      registerObject(
+        context.inputComponentNames.get(name),
+        shape,
+        'input',
+        schemas[name]?.description,
+        context,
+      )
+    }
+  }
+
+  contexts.push(context)
 }
 
 const blocks = [...typeDefs.values()]
@@ -293,7 +357,8 @@ const blocks = [...typeDefs.values()]
 
 const sdl = blocks.join('\n\n')
 const target = join(projectRoot, 'src', 'graphql', 'generated.ts')
-const source = `// AUTO-GENERATED by scripts/generate-fedex-types.mjs from ship.json.
+const documents = DOCUMENTS.map((document) => document.file).join(', ')
+const source = `// AUTO-GENERATED by scripts/generate-fedex-types.mjs from ${documents}.
 // Run \`npm run generate\` instead of editing this file.
 export const generatedTypeDefs: string = ${JSON.stringify(sdl)}
 `

@@ -1,6 +1,6 @@
 # FedEx GraphQL
 
-A small GraphQL server that wraps the **FedEx Ship API (REST v1)**. It handles FedEx OAuth and maps the full Ship API schema from `ship.json` onto the Ship endpoints as typed GraphQL objects.
+A small GraphQL server that wraps the **FedEx Ship API (REST v1)** and **FedEx Track API (REST v1)**. It handles FedEx OAuth and maps the full schemas from `ship.json` and `track.json` onto the FedEx endpoints as typed GraphQL objects.
 
 - Node.js + TypeScript
 - [GraphQL Yoga](https://the-guild.dev/graphql/yoga-server) + [GraphiQL 6](https://github.com/graphql/graphiql)
@@ -20,9 +20,15 @@ A small GraphQL server that wraps the **FedEx Ship API (REST v1)**. It handles F
 | `asyncShipment` | query | `POST /ship/v1/shipments/results` |
 | `validateAddress` | query | `POST /address/v1/addresses/resolve` |
 | `validatePostalCode` | query | `POST /country/v1/postal/validate` |
+| `trackShipment` | query | `POST /track/v1/trackingnumbers` |
+| `trackByReferenceNumbers` | query | `POST /track/v1/referencenumbers` |
+| `trackAssociatedShipments` | query | `POST /track/v1/associatedshipments` |
+| `trackByTcn` | query | `POST /track/v1/tcn` |
+| `trackDocuments` | query | `POST /track/v1/trackingdocuments` |
+| `sendTrackingNotifications` | mutation | `POST /track/v1/notifications` |
 | `fedexHealth` | query | local status, no FedEx call |
 
-`validateAddress` and `validatePostalCode` use FedEx's Address Validation and Postal Code Validation APIs, which are the usual pre-flight checks before creating a shipment.
+`validateAddress` and `validatePostalCode` use FedEx's Address Validation and Postal Code Validation APIs, which are the usual pre-flight checks before creating a shipment. The Track API operations use the same cached OAuth token and return the full typed response structure from `track.json`.
 
 ## Setup
 
@@ -205,15 +211,16 @@ FedEx value sets are modeled as real GraphQL enums, which is what drives value a
 
 ### Full OpenAPI schema
 
-Every object, enum, and alias in `ship.json` has a GraphQL equivalent. Generated names are prefixed with `Fedex` to avoid colliding with the hand-written convenience types:
+Every object, enum, and alias in `ship.json` and `track.json` has a GraphQL equivalent. Generated names are prefixed so they cannot collide with the hand-written convenience types or with each other:
 
-- `Fedex<Name>` is the response object type.
-- `Fedex<Name>Input` is the request input object type.
+- `Fedex<Name>` / `Fedex<Name>Input` are the Ship API response/request types.
+- `FedexTrack<Name>` / `FedexTrack<Name>Input` are the Track API response/request types.
 - Generated enums appear on input fields as real GraphQL enums.
+- Top-level OpenAPI array schemas are expanded inline as GraphQL lists.
 
-The hand-written types cover the common domestic flow and add conveniences such as derived weights, label proxy URLs, and flattened result shapes. The generated types are available everywhere a corresponding field is typed in the noted inputs; for example `requestedShipment.customsClearanceDetail` accepts `FedexCustomsClearanceDetailInput` and `requestedShipment.packageSpecialServices` accepts `FedexPackageSpecialServicesRequestedInput`.
+The hand-written types cover the common domestic shipping flow and add conveniences such as derived weights, label proxy URLs, and flattened result shapes. The generated types are available everywhere a corresponding field is typed in the noted inputs; for example `requestedShipment.customsClearanceDetail` accepts `FedexCustomsClearanceDetailInput`, and the Track API accepts `FedexTrackFull_Schema_Tracking_NumbersInput` and returns `FedexTrackTrkcResponseVO_TrackingNumber`.
 
-There is no `JSON` scalar and no untyped pass-through field. Run `npm run generate` after changing `ship.json`, or `npm run schema` to regenerate and print the SDL.
+There is no `JSON` scalar and no untyped pass-through field. Run `npm run generate` after changing either OpenAPI document, or `npm run schema` to regenerate and print the SDL.
 
 ## Configuration
 
@@ -254,11 +261,11 @@ src/
     resolvers.ts         endpoint wiring
     serialize.ts         GraphQL input -> FedEx request payloads
     map.ts               FedEx responses -> GraphQL result shapes
-    generated.ts         generated Fedex* types from ship.json (do not edit)
+    generated.ts         generated Fedex*/FedexTrack* types (do not edit)
     schema.ts            executable schema
 examples/operations.graphql
 scripts/
-  generate-fedex-types.mjs  generates Fedex* types from ship.json
+  generate-fedex-types.mjs  generates Fedex*/FedexTrack* types from ship.json + track.json
   build-frontend.mjs     bundles GraphiQL, Monaco workers, and CSS into public/
   build-sea.mjs          bundles and builds the standalone executable
 public/assets/           generated frontend bundle (git-ignored)
@@ -272,8 +279,9 @@ This service is meant to run server-side. FedEx credentials grant access to your
 
 ## Limitations
 
-- Generated types come from `ship.json`. If FedEx adds a field to the published spec, refresh `ship.json`, run `npm run generate`, and rebuild.
-- Enum lists are a snapshot of FedEx's documented values. GraphQL rejects values that are not in the list; add new values to `ship.json` or `src/graphql/enums.ts`, then run `npm run generate`.
+- Generated types come from `ship.json` and `track.json`. If FedEx adds a field to a published spec, refresh the document, run `npm run generate`, and rebuild.
+- Enum lists are a snapshot of FedEx's documented values. GraphQL rejects values that are not in the list; add new values to the OpenAPI document or `src/graphql/enums.ts`, then run `npm run generate`.
+- The Track API returns only fields documented in `track.json`. FedEx sometimes returns extra fields; those are intentionally not exposed by GraphQL.
 - The Ship REST API has no synchronous "get shipment by tracking number" endpoint. `asyncShipment` retrieves results by `jobId`; live tracking belongs to the separate Track API.
 - Return-tag requests vary by service and pickup mode. `createTag` reuses the shipment input plus `requestedShipment.pickupDetail`; for lane-specific fields, use the matching typed `Fedex*Input` fields from `ship.json`.
 - This is an independent wrapper, not affiliated with or supported by FedEx.

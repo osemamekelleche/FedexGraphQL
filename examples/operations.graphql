@@ -1,0 +1,383 @@
+# Example operations for the FedEx GraphQL wrapper.
+# Open http://localhost:4000/graphql and paste a block into GraphiQL.
+#
+# FedEx enum-like values are GraphQL enums: write them unquoted.
+# `units` on weights/dimensions are also GraphQL enums (LB, KG, IN, CM).
+# Nested FedEx objects use the generated Fedex*Input types from ship.json.
+
+# --- Create a shipment and return base64 labels ---------------------------
+mutation CreateShipment {
+  createShipment(
+    input: {
+      requestedShipment: {
+        pickupType: USE_SCHEDULED_PICKUP
+        serviceType: FEDEX_GROUND
+        packagingType: YOUR_PACKAGING
+        shipper: {
+          contact: { personName: "Warehouse", phoneNumber: "9015550100" }
+          address: {
+            streetLines: ["1 Main St"]
+            city: "Memphis"
+            stateOrProvinceCode: "TN"
+            postalCode: "38101"
+            countryCode: "US"
+          }
+        }
+        recipients: [
+          {
+            contact: {
+              personName: "Customer"
+              phoneNumber: "9015550101"
+              emailAddress: "customer@example.com"
+            }
+            address: {
+              streetLines: ["10 FedEx Parkway"]
+              city: "Collierville"
+              stateOrProvinceCode: "TN"
+              postalCode: "38017"
+              countryCode: "US"
+            }
+          }
+        ]
+        requestedPackageLineItems: [
+          {
+            weight: { value: 2.5, units: LB }
+            dimensions: { length: 10, width: 8, height: 4, units: IN }
+          }
+        ]
+      }
+    }
+  ) {
+    transactionId
+    jobId
+    errors {
+      code
+      message
+    }
+    shipments {
+      masterTrackingNumber
+      serviceName
+      shipDatestamp
+      pieces {
+        trackingNumber
+        netChargeAmount
+        documents {
+          docType
+          fedexUrl
+          url
+          encodedLabel
+        }
+      }
+    }
+  }
+}
+
+# --- Same shipment, but return document URLs instead of base64 labels -----
+mutation CreateShipmentWithDocumentUrls {
+  createShipment(
+    input: {
+      labelResponseOptions: URL_ONLY
+      requestedShipment: {
+        pickupType: DROPOFF_AT_FEDEX_LOCATION
+        serviceType: FEDEX_GROUND
+        packagingType: YOUR_PACKAGING
+        shipper: {
+          contact: { personName: "Warehouse", phoneNumber: "9015550100" }
+          address: {
+            streetLines: ["1 Main St"]
+            city: "Memphis"
+            stateOrProvinceCode: "TN"
+            postalCode: "38101"
+            countryCode: "US"
+          }
+        }
+        recipients: [
+          {
+            contact: { personName: "Customer", phoneNumber: "9015550101" }
+            address: {
+              streetLines: ["10 FedEx Parkway"]
+              city: "Collierville"
+              stateOrProvinceCode: "TN"
+              postalCode: "38017"
+              countryCode: "US"
+            }
+          }
+        ]
+        requestedPackageLineItems: [{ weight: { value: 2, units: LB } }]
+      }
+    }
+  ) {
+    shipments {
+      masterTrackingNumber
+      pieces {
+        trackingNumber
+        documents {
+          docType
+          fedexUrl
+          url
+        }
+      }
+    }
+  }
+}
+
+# --- Validate a shipment without buying a label ---------------------------
+mutation ValidateShipment {
+  validateShipment(
+    input: {
+      requestedShipment: {
+        pickupType: USE_SCHEDULED_PICKUP
+        serviceType: FEDEX_GROUND
+        packagingType: YOUR_PACKAGING
+        shipper: {
+          contact: { personName: "Warehouse", phoneNumber: "9015550100" }
+          address: {
+            streetLines: ["1 Main St"]
+            city: "Memphis"
+            stateOrProvinceCode: "TN"
+            postalCode: "38101"
+            countryCode: "US"
+          }
+        }
+        recipients: [
+          {
+            contact: { personName: "Customer", phoneNumber: "9015550101" }
+            address: {
+              streetLines: ["10 FedEx Parkway"]
+              city: "Collierville"
+              stateOrProvinceCode: "TN"
+              postalCode: "38017"
+              countryCode: "US"
+            }
+          }
+        ]
+        requestedPackageLineItems: [{ weight: { value: 2, units: LB } }]
+      }
+    }
+  ) {
+    transactionId
+    alerts {
+      alertType
+      code
+      message
+    }
+    errors {
+      code
+      message
+    }
+  }
+}
+
+# --- Cancel a shipment ----------------------------------------------------
+mutation CancelShipment {
+  cancelShipment(
+    input: {
+      trackingNumber: "794953555571"
+      senderCountryCode: "US"
+      deletionControl: DELETE_ALL_PACKAGES
+    }
+  ) {
+    transactionId
+    cancelledShipment
+    cancelledHistory
+    message
+    errors {
+      code
+      message
+    }
+  }
+}
+
+# --- Create a return tag (FedEx delivers the return label + pickup) -------
+mutation CreateTag {
+  createTag(
+    input: {
+      requestedShipment: {
+        shipTimestamp: "2026-11-10"
+        pickupType: CONTACT_FEDEX_TO_SCHEDULE
+        serviceType: FEDEX_GROUND
+        packagingType: YOUR_PACKAGING
+        pickupDetail: {
+          readyPickupDateTime: "2026-11-10T09:00:00Z"
+          latestPickupDateTime: "2026-11-10T17:00:00Z"
+        }
+        shipper: {
+          contact: { personName: "Warehouse", phoneNumber: "9015550100" }
+          address: {
+            streetLines: ["1 Main St"]
+            city: "Memphis"
+            stateOrProvinceCode: "TN"
+            postalCode: "38101"
+            countryCode: "US"
+          }
+        }
+        recipients: [
+          {
+            contact: { personName: "Customer", phoneNumber: "9015550101" }
+            address: {
+              streetLines: ["10 FedEx Parkway"]
+              city: "Collierville"
+              stateOrProvinceCode: "TN"
+              postalCode: "38017"
+              countryCode: "US"
+            }
+          }
+        ]
+        requestedPackageLineItems: [{ weight: { value: 2, units: LB } }]
+        shipmentSpecialServices: {
+          specialServiceTypes: ["RETURN_SHIPMENT"]
+          returnShipmentDetail: { returnType: PRINT_RETURN_LABEL }
+        }
+      }
+    }
+  ) {
+    transactionId
+    masterTrackingNumber
+    confirmationNumber
+    dispatchDate
+    location
+    alerts {
+      code
+      message
+    }
+    errors {
+      code
+      message
+    }
+  }
+}
+
+# --- Cancel a return tag --------------------------------------------------
+mutation CancelTag {
+  cancelTag(
+    input: {
+      shipmentId: "794953555571"
+      serviceType: FEDEX_GROUND
+      completedTagDetail: {
+        confirmationNumber: "275"
+        location: "NQAA"
+        dispatchDate: "2026-11-10"
+      }
+    }
+  ) {
+    transactionId
+    cancelledTag
+    successMessage
+    alerts {
+      code
+      message
+    }
+    errors {
+      code
+      message
+    }
+  }
+}
+
+# --- Poll an asynchronously processed shipment ----------------------------
+query AsyncShipment {
+  asyncShipment(input: { jobId: "abc123456" }) {
+    transactionId
+    jobId
+    shipments {
+      masterTrackingNumber
+      pieces {
+        trackingNumber
+        documents {
+          docType
+          fedexUrl
+          url
+        }
+      }
+    }
+    errors {
+      code
+      message
+    }
+  }
+}
+
+# --- Validate an address before shipping ---------------------------------
+query ValidateAddress {
+  validateAddress(
+    input: {
+      includeResolutionTokens: true
+      addressesToValidate: [
+        {
+          clientReferenceId: "order-123"
+          address: {
+            streetLines: ["10 Fedex Pkwy"]
+            city: "Collierville"
+            stateOrProvinceCode: "TN"
+            postalCode: "38017"
+            countryCode: "US"
+          }
+        }
+      ]
+    }
+  ) {
+    transactionId
+    resolvedAddresses {
+      clientReferenceId
+      streetLines
+      city
+      stateOrProvinceCode
+      postalCode
+      countryCode
+      classification
+      normalizedStatusNameDPV
+      customerMessage {
+        code
+        message
+      }
+      attributes {
+        key
+        value
+      }
+    }
+    unresolvedAddresses {
+      clientReferenceId
+      streetLines
+    }
+    errors {
+      code
+      message
+    }
+  }
+}
+
+# --- Validate a postal code ----------------------------------------------
+query ValidatePostalCode {
+  validatePostalCode(
+    input: {
+      carrierCode: FDXE
+      countryCode: "US"
+      stateOrProvinceCode: "TN"
+      postalCode: "38017"
+      city: "Collierville"
+    }
+  ) {
+    transactionId
+    valid
+    postalCode
+    stateOrProvinceCode
+    city
+    countryCode
+    errors {
+      code
+      message
+    }
+  }
+}
+
+# --- Local health/configuration check ------------------------------------
+query Health {
+  fedexHealth {
+    environment
+    baseUrl
+    credentialsConfigured
+    accountNumberConfigured
+    tokenCached
+    tokenExpiresAt
+  }
+}
